@@ -2,7 +2,7 @@
 # IMPORTS
 # =========================================================
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import StringIO
 import os
 
@@ -37,18 +37,26 @@ with DAG(
     # =====================================================
     # EXTRACT
     # =====================================================
-    def extract(**kwargs):
-        ds_nodash = kwargs["ds_nodash"]
-        url = f"{BASE_URL}/{ds_nodash}.csv"
 
-        logging.info(f"Baixando arquivo: {url}")
+
+    def extract(**kwargs):
+        logical_date = kwargs["logical_date"]
+
+        data_ref = (logical_date - timedelta(days=1)).strftime("%Y%m%d")
+
+        url = f"{BASE_URL}/{data_ref}.csv"
+        logging.info(f"Baixando arquivo PTAX fechamento: {url}")
 
         response = requests.get(url)
 
-        if response.status_code != 200:
-            raise ValueError(f"Erro ao baixar arquivo: {response.status_code}")
+        if response.status_code == 404:
+            logging.warning(
+                f"Arquivo de fechamento não disponível para {data_ref}, pulando execucao"
+            )
+            return None
 
         return response.text
+
 
 
     extract_task = PythonOperator(
@@ -57,9 +65,9 @@ with DAG(
     )
 
 
-    # =====================================================
-    # TRANSFORM
-    # =====================================================
+        # =====================================================
+        # TRANSFORM
+        # =====================================================
     def transform(**kwargs):
         ti = kwargs["ti"]
         csv_data = ti.xcom_pull(task_ids="extract")
@@ -160,7 +168,7 @@ with DAG(
     )
 
 
-# ======================== DEGUB ======================
+    # ======================== DEGUB ======================
 
     def check_load():
         hook = PostgresHook(postgres_conn_id="postgres_astro")
